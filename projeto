@@ -1,0 +1,91 @@
+import requests
+import random
+import time
+import logging
+import re
+from threading import Thread, Semaphore
+
+
+class ProxyViewer:
+    """
+    Classe para testar proxies e simular visualizações usando múltiplas threads.
+    """
+    def __init__(self, proxy_list, timeout=10, max_threads=10):
+        """
+        :param proxy_list: Lista de proxies (str)
+        :param timeout: Timeout para teste de proxy (segundos)
+        :param max_threads: Número máximo de threads simultâneas
+        """
+        self.proxy_list = proxy_list
+        self.timeout = timeout
+        self.max_threads = max_threads
+        self.active = False
+        self.results = []
+        self.semaphore = Semaphore(max_threads)
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+
+    def is_valid_proxy(self, proxy):
+        """Valida o formato do proxy (http[s]://ip:porta)"""
+        pattern = r'^https?://[\w\.-]+:\d{2,5}$'
+        return re.match(pattern, proxy) is not None
+
+    def test_proxy(self, proxy):
+        """Testa se o proxy está funcionando"""
+        try:
+            response = requests.get(
+                'http://httpbin.org/ip',
+                proxies={'http': proxy, 'https': proxy},
+                timeout=self.timeout
+            )
+            return response.status_code == 200
+        except requests.exceptions.RequestException as e:
+            logging.warning(f"Proxy {proxy} falhou: {e}")
+            return False
+
+    def simulate_view(self, proxy):
+        """Simula uma visualização (apenas espera aleatória)"""
+        with self.semaphore:
+            try:
+                logging.info(f"Tentando conectar via {proxy}")
+                time.sleep(random.randint(5, 15))
+                self.results.append((proxy, 'sucesso'))
+            except Exception as e:
+                logging.error(f"Erro com proxy {proxy}: {e}")
+                self.results.append((proxy, f'erro: {e}'))
+
+    def start(self):
+        """Inicia o teste e simulação de visualizações usando os proxies válidos e funcionais."""
+        self.active = True
+        threads = []
+        self.results = []
+
+        for proxy in self.proxy_list:
+            if not self.active:
+                break
+            if not self.is_valid_proxy(proxy):
+                logging.warning(f"Proxy inválido: {proxy}")
+                self.results.append((proxy, 'inválido'))
+                continue
+            if self.test_proxy(proxy):
+                thread = Thread(target=self.simulate_view, args=(proxy,))
+                thread.start()
+                threads.append(thread)
+                time.sleep(0.5)  # Delay entre conexões
+            else:
+                self.results.append((proxy, 'falhou'))
+
+        for thread in threads:
+            thread.join()
+        logging.info(f"Resultados: {self.results}")
+        return self.results
+
+# Exemplo de uso (não recomendado)
+if __name__ == "__main__":
+    proxies = [
+        'http://proxy1:8080',
+        'http://proxy2:3128',
+        'proxyinvalido',
+    ]
+    viewer = ProxyViewer(proxies, timeout=5, max_threads=3)
+    resultados = viewer.start()
+    print(resultados)
